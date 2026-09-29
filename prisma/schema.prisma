@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id              String              @id @default(cuid())
+  email           String              @unique
+  name            String
+  role            String              @default("STAFF") // ADMIN, TECHNICIAN, STAFF, MEMBER
+  phone           String?
+  avatarUrl       String?
+  facilityId      String?
+  facility        Facility?           @relation(fields: [facilityId], references: [id])
+  assignedTasks   MaintenanceTicket[] @relation("AssignedTechnician")
+  reportedTickets MaintenanceTicket[] @relation("ReportedBy")
+  pmInspections   PMExecution[]
+  workLogs        WorkOrderLog[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+}
+
+model Facility {
+  id         String      @id @default(cuid())
+  name       String
+  address    String
+  timezone   String      @default("UTC")
+  users      User[]
+  equipment  Equipment[]
+  spareParts SparePart[]
+  createdAt  DateTime    @default(now())
+}
+
+model Equipment {
+  id             String              @id @default(cuid())
+  qrCodeId       String              @unique // e.g. FF-EQ-1001
+  name           String // e.g. "LifeFitness Integrity Treadmill #4"
+  category       String // Cardio, Strength, Cables, Free Weights, Recovery
+  brand          String // LifeFitness, Hammer Strength, Precor, Rogue, Concept2
+  model          String
+  serialNumber   String              @unique
+  facilityId     String
+  facility       Facility            @relation(fields: [facilityId], references: [id])
+  zone           String // "Cardio Deck", "Free Weights Zone A", "Studio 2", "Functional Turf"
+  purchaseDate   DateTime?
+  warrantyExpiry DateTime?
+  purchaseCost   Float?
+  status         String              @default("OPERATIONAL") // OPERATIONAL, DEGRADED, UNDER_MAINTENANCE, OUT_OF_ORDER, DECOMMISSIONED
+  healthScore    Int                 @default(100) // 0 - 100 calculated metric
+  manualUrl      String?
+  imageUrl       String?
+  tickets        MaintenanceTicket[]
+  pmSchedules    PMSchedule[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model MaintenanceTicket {
+  id            String         @id @default(cuid())
+  ticketNumber  String         @unique // e.g. WO-2026-0042
+  equipmentId   String
+  equipment     Equipment      @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  reportedById  String?
+  reportedBy    User?          @relation("ReportedBy", fields: [reportedById], references: [id])
+  reporterName  String? // For guest/member scan reports
+  reporterEmail String?
+  technicianId  String?
+  technician    User?          @relation("AssignedTechnician", fields: [technicianId], references: [id])
+  priority      String         @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  status        String         @default("REPORTED") // REPORTED, ASSIGNED, IN_PROGRESS, PENDING_PARTS, COMPLETED, VERIFIED
+  faultCategory String // "Motor Failure", "Snapped Cable", "Display Dead", "Worn Belt", "Squeaking/Noise", "Structural/Frame", "Sensors/Electronics"
+  title         String
+  description   String
+  photoUrls     String         @default("[]") // JSON stringified array of photo URLs
+  logs          WorkOrderLog[]
+  costEstimate  Float?
+  actualCost    Float?
+  slaDueDate    DateTime?
+  resolvedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model WorkOrderLog {
+  id            String            @id @default(cuid())
+  ticketId      String
+  ticket        MaintenanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  technicianId  String
+  technician    User              @relation(fields: [technicianId], references: [id])
+  actionTaken   String
+  laborMinutes  Int               @default(0)
+  partsUsed     String? // JSON stringified array [{partId, name, quantity, unitCost}]
+  totalPartCost Float             @default(0)
+  notes         String?
+  beforePhoto   String?
+  afterPhoto    String?
+  loggedAt      DateTime          @default(now())
+}
+
+model PMSchedule {
+  id              String        @id @default(cuid())
+  equipmentId     String
+  equipment       Equipment     @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  title           String // e.g. "Monthly Drive Belt & Deck Lubrication"
+  frequency       String // DAILY, WEEKLY, BIWEEKLY, MONTHLY, QUARTERLY, BIANNUAL, ANNUAL
+  checklistSchema String // JSON array: [{"id":"1", "task":"Inspect cable tension and wear", "required":true}]
+  lastCompletedAt DateTime?
+  nextDueDate     DateTime
+  isActive        Boolean       @default(true)
+  executions      PMExecution[]
+  createdAt       DateTime      @default(now())
+}
+
+model PMExecution {
+  id           String     @id @default(cuid())
+  scheduleId   String
+  schedule     PMSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  technicianId String
+  technician   User       @relation(fields: [technicianId], references: [id])
+  resultsJson  String // JSON array: [{"id":"1", "task":"Inspect cable tension", "passed":true, "notes":"Good"}]
+  passedAll    Boolean    @default(true)
+  notes        String?
+  completedAt  DateTime   @default(now())
+}
+
+model SparePart {
+  id           String   @id @default(cuid())
+  facilityId   String
+  facility     Facility @relation(fields: [facilityId], references: [id])
+  name         String // e.g. "Commercial Treadmill Drive Belt 3-Ply"
+  sku          String   @unique
+  category     String // Belts, Cables, Pulleys, Pins, Upholstery, Lubricants, Electronics
+  quantity     Int      @default(0)
+  minThreshold Int      @default(2) // Low stock warning threshold
+  unitCost     Float    @default(0)
+  supplier     String?
+  locationRack String? // "Bin A-14"
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+}
